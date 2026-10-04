@@ -1,11 +1,5 @@
----
-title: PolicyLens
-emoji: 🔎
-colorFrom: indigo
-colorTo: blue
-sdk: static
-pinned: false
----
+
+**Live demo:** https://huggingface.co/spaces/kotharidipti75/policylens
 
 # PolicyLens 🔎
 
