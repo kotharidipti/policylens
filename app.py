@@ -3,8 +3,8 @@ import difflib
 import gradio as gr
 from transformers import pipeline
 
-MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
-THRESH = 0.75
+MODEL = "cross-encoder/nli-deberta-v3-xsmall"
+THRESH = 0.7
 TEMPLATE = "The company {}."
 
 # label phrase -> (risk weight, plain-language explanation)
