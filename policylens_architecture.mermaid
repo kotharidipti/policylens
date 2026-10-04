@@ -1,0 +1,21 @@
+flowchart TD
+    U[User: Web App / Browser Extension] --> FE[Next.js Frontend]
+    FE --> API[FastAPI Backend]
+    API --> AUTH[Auth: Keycloak]
+    API --> FETCH[Policy Fetcher: Playwright + trafilatura]
+    FETCH --> CLEAN[Text Cleaner and Clause Splitter]
+    CLEAN --> LANG[Language Detect: fastText]
+    LANG --> MT[NLLB-200: Translate to English]
+    MT --> CLS[Privacy Clause Classifier: fine-tuned DeBERTa-v3]
+    MT --> EMB[Embeddings: bge-m3]
+    EMB --> VDB[(Qdrant Vector DB)]
+    LAW[(GDPR, CCPA, DPDP, LGPD Legal Texts)] --> VDB
+    CLS --> LLM[Llama 3.1 8B / Qwen2.5 via Ollama or vLLM]
+    VDB -->|RAG: region-specific rights| LLM
+    LLM --> LABEL[Privacy Label Generator: grade A-F + rights]
+    LABEL --> TR[NLLB-200: Translate to User Language]
+    TR --> API
+    API --> DB[(PostgreSQL: users, saved reports, policy versions)]
+    DB --> DIFF[Policy Change Monitor: cron + diff]
+    DIFF --> API
+    API --> FE

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PolicyLens</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#1b2030;--mut:#667085;--ac:#4f46e5;--bd:#e3e6ef;--bad:#a11;--warn:#8a5a00;--ok:#16683a}
+@media (prefers-color-scheme:dark){:root{--bg:#10131c;--card:#181c28;--tx:#e8eaf2;--mut:#9aa1b5;--ac:#8b85ff;--bd:#2a3042;--bad:#ffb3b3;--warn:#ffd27a;--ok:#8fe3b1}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+.w{max-width:780px;margin:0 auto;padding:20px 16px}h1{margin:0;font-size:26px}.sub{color:var(--mut);margin:4px 0 12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:12px 0}
+textarea,select{width:100%;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit;margin:6px 0 10px}
+textarea{min-height:140px}
+button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}button.g{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+.hint{font-size:13px;color:var(--mut)}.q{color:var(--mut);font-style:italic;font-size:14px;border-left:3px solid var(--bd);padding-left:10px;margin:4px 0}
+.grade{font-size:54px;font-weight:800;line-height:1}.item{padding:10px 0;border-bottom:1px solid var(--bd)}.item:last-child{border:0}
+[hidden]{display:none!important}
+</style></head><body><div class="w">
+<h1>🔎 PolicyLens</h1>
+<p class="sub">A privacy nutrition label for any policy, with your legal rights and change tracking.</p>
+<div id="st" class="hint card">Loading AI model (first visit only, may take a minute)…</div>
+<label>Your region's law<select id="reg"></select></label>
+<div><button id="b1" class="g">Analyze a policy</button> <button id="b2" class="g">Detect policy changes</button></div>
+
+<section id="p1" class="card">
+  <textarea id="txt"></textarea>
+  <button id="go" disabled>Generate label</button>
+  <div id="out"></div>
+</section>
+<section id="p2" class="card" hidden>
+  <div class="hint">Old version</div><textarea id="old"></textarea>
+  <div class="hint">New version</div><textarea id="new"></textarea>
+  <button id="df" disabled>What changed?</button>
+  <div id="out2"></div>
+</section>
+<p class="hint">Runs fully in your browser using an open-source NLI model (DeBERTa-v3 via Transformers.js). Your text never leaves your device. Informational only, not legal advice.</p>
+</div>
+<script type="module">
+import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3";
+const THRESH = 0.7;
+const RISKS = {
+ "sells personal data":[3,"Your data may be sold for profit."],
+ "shares data with third parties or advertisers":[2,"Your data goes to other companies, often advertisers."],
+ "tracks users with cookies or trackers":[2,"Cookies or trackers follow your activity."],
+ "uses user data to train AI models":[2,"Your content may be used to train AI models."],
+ "keeps data for a long or unlimited time":[2,"There is no clear deletion date."],
+ "collects precise location":[2,"Your exact location is collected."],
+ "collects children's data":[2,"Children's data is involved."],
+ "lets users delete their data":[-1,"Good: you can ask for your data to be deleted."]};
+const LABELS = Object.keys(RISKS);
+const RIGHTS = {"GDPR (EU/UK)":"You can access, object to, and erase your data (GDPR Arts. 15-21).",
+ "CCPA/CPRA (California)":"You can opt out of sale or sharing and request deletion.",
+ "DPDP Act (India)":"You can withdraw consent and request erasure (DPDP Act 2023).",
+ "LGPD (Brazil)":"You can request access, correction, and deletion of your data."};
+const OLD = "We collect your email and name. We use cookies to keep you logged in. You may request deletion of your account at any time.";
+const NEW = OLD + " We may share your information with advertising partners. We use your content to train our machine learning models. We may sell personal information to data brokers.";
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+$("reg").innerHTML = Object.keys(RIGHTS).map(r => `<option>${r}</option>`).join("");
+$("txt").value = NEW; $("old").value = OLD; $("new").value = NEW;
+$("b1").onclick = () => { $("p1").hidden = false; $("p2").hidden = true };
+$("b2").onclick = () => { $("p1").hidden = true; $("p2").hidden = false };
+
+let clf;
+try {
+  clf = await pipeline("zero-shot-classification", "Xenova/nli-deberta-v3-xsmall", {
+    progress_callback: p => { if (p.status === "progress") $("st").textContent = "Downloading model… " + Math.round(p.progress) + "%"; }
+  });
+  $("st").textContent = "Model ready ✓";
+  $("go").disabled = $("df").disabled = false;
+} catch (e) { $("st").textContent = "Model failed to load: " + e.message; }
+
+const split = (t, lim = 40) => t.split(/(?<=[.!?])\s+|\n+/).map(s => s.trim()).filter(s => s.length > 30).slice(0, lim);
+
+async function classify(sents) {
+  const best = {};
+  for (let i = 0; i < sents.length; i++) {
+    $("st").textContent = `Analyzing clause ${i + 1}/${sents.length}…`;
+    const o = await clf(sents[i], LABELS, { hypothesis_template: "The company {}.", multi_label: true });
+    o.labels.forEach((l, k) => { const sc = o.scores[k]; if (sc >= THRESH && (!best[l] || sc > best[l][0])) best[l] = [sc, sents[i]]; });
+  }
+  $("st").textContent = "Done ✓";
+  return best;
+}
+
+$("go").onclick = async () => {
+  $("go").disabled = true;
+  const best = await classify(split($("txt").value));
+  const pts = Object.keys(best).reduce((a, l) => a + RISKS[l][0], 0);
+  const g = pts <= 1 ? "A" : pts <= 3 ? "B" : pts <= 6 ? "C" : pts <= 9 ? "D" : "F";
+  const col = g < "C" ? "var(--ok)" : g == "C" ? "var(--warn)" : "var(--bad)";
+  const reg = $("reg").value;
+  let h = `<div class="item"><span class="grade" style="color:${col}">${g}</span> <b>Privacy grade</b> <span class="hint">score ${pts}, lower is better</span></div>`;
+  if (!Object.keys(best).length) h += "<p>No known risk patterns detected.</p>";
+  Object.entries(best).sort((a, b) => RISKS[b[0]][0] - RISKS[a[0]][0]).forEach(([l, [sc, s]]) => {
+    h += `<div class="item"><b>${esc(l)}</b> <span class="hint">${Math.round(sc * 100)}% confidence</span><div>${RISKS[l][1]}</div><div class="q">${esc(s)}</div></div>`;
+  });
+  h += `<p><b>Your rights under ${reg}:</b> ${RIGHTS[reg]}</p>`;
+  $("out").innerHTML = h; $("go").disabled = false;
+};
+
+$("df").onclick = async () => {
+  $("df").disabled = true;
+  const a = split($("old").value, 200), b = split($("new").value, 200);
+  const norm = s => s.toLowerCase().replace(/\s+/g, " ");
+  const oa = new Set(a.map(norm)), ob = new Set(b.map(norm));
+  const added = b.filter(s => !oa.has(norm(s))), removed = a.filter(s => !ob.has(norm(s)));
+  let h = `<p><b>${added.length} clauses added, ${removed.length} removed</b></p>`;
+  if (added.length) {
+    const risky = await classify(added.slice(0, 30));
+    h += Object.keys(risky).length ? "<p><b>New risks introduced by this update:</b></p>" + Object.entries(risky).map(([l, [, s]]) => `<div class="item"><b>${esc(l)}</b><div class="q">${esc(s)}</div></div>`).join("") : "<p>No new risky patterns in the added text.</p>";
+  }
+  $("out2").innerHTML = h; $("df").disabled = false;
+};
+</script></body></html>
